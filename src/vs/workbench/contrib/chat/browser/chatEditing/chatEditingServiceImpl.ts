@@ -468,7 +468,7 @@ class ChatEditingMultiDiffSource implements IResolvedMultiDiffSource {
 					return new MultiDiffEditorItem(
 						entryDiff.originalURI,
 						entryDiff.modifiedURI,
-						undefined,
+						entry.modifiedURI,
 						undefined,
 						{
 							[chatEditingResourceContextKey.key]: entry.entryId,
@@ -480,7 +480,7 @@ class ChatEditingMultiDiffSource implements IResolvedMultiDiffSource {
 			return new MultiDiffEditorItem(
 				entry.originalURI,
 				entry.modifiedURI,
-				undefined,
+				entry.modifiedURI,
 				undefined,
 				{
 					[chatEditingResourceContextKey.key]: entry.entryId,

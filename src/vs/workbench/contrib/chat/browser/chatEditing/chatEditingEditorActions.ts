@@ -408,6 +408,31 @@ export class AcceptAllEditsAction extends ChatEditingEditorAction {
 }
 
 
+class OpenFileAction extends Action2 {
+	constructor() {
+		super({
+			id: 'chatEditor.action.openFile',
+			title: localize2('openFile', 'Open File'),
+			icon: Codicon.goToFile,
+			precondition: ContextKeyExpr.and(EditorContextKeys.inDiffEditor, ctxHasEditorModification),
+			menu: [MenuId.EditorTitle, MenuId.CompactWindowEditorTitle].map(id => ({
+				id,
+				when: ContextKeyExpr.and(EditorContextKeys.inDiffEditor, ctxHasEditorModification),
+				group: 'navigation',
+				order: 22,
+			})),
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const editorService = accessor.get(IEditorService);
+		const uri = EditorResourceAccessor.getOriginalUri(editorService.activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
+		if (uri) {
+			await editorService.openEditor({ resource: uri });
+		}
+	}
+}
+
 // --- multi file diff
 
 abstract class MultiDiffAcceptDiscardAction extends Action2 {
@@ -631,6 +656,7 @@ export function registerChatEditorActions() {
 	registerAction2(RejectHunkAction);
 	registerAction2(ToggleDiffAction);
 	registerAction2(ToggleAccessibleDiffViewAction);
+	registerAction2(OpenFileAction);
 
 	registerAction2(class extends MultiDiffAcceptDiscardAction { constructor() { super(true); } });
 	registerAction2(class extends MultiDiffAcceptDiscardAction { constructor() { super(false); } });
