@@ -122,7 +122,7 @@ function appendContent(markdownString: MarkdownString, authorAvatar: string | un
 	}
 
 	// Subject | Message (escape image syntax)
-	markdownString.appendMarkdown(`${emojify(message.replace(/!\[/g, '&#33;&#91;').replace(/\r\n|\r|\n/g, '\n\n'))}`);
+	markdownString.appendMarkdown(`${emojify(message.replace(/!\[/g, '&#33;&#91;').replace(/\r\n|\r/g, '\n').replace(/(?<!\n)\n(?!\n)/g, '  \n'))}`);
 	markdownString.appendMarkdown(`\n\n---\n\n`);
 }
 
