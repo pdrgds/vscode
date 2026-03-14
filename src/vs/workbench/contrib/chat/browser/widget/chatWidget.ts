@@ -190,6 +190,28 @@ const supportsAllAttachments: Required<IChatAgentAttachmentCapabilities> = {
 
 const DISCLAIMER = localize('chatDisclaimer', "AI responses may be inaccurate");
 
+/**
+ * When a task completes via task_complete, mark any remaining incomplete
+ * todos as completed to keep the widget in sync with the agent's state.
+ */
+export function reconcileTodosOnTaskComplete(todoService: IChatTodoListService, sessionResource: URI, response: IChatResponseModel): void {
+	const hasTaskComplete = response.entireResponse.value.some(
+		part => (part.kind === 'toolInvocation' || part.kind === 'toolInvocationSerialized') && part.toolId === TaskCompleteToolId
+	);
+	if (!hasTaskComplete) {
+		return;
+	}
+
+	const todos = todoService.getTodos(sessionResource);
+	if (todos.length > 0 && todos.some(t => t.status !== 'completed')) {
+		const completedTodos = todos.map(t => ({
+			...t,
+			status: 'completed' as const,
+		}));
+		todoService.setTodos(sessionResource, completedTodos);
+	}
+}
+
 export class ChatWidget extends Disposable implements IChatWidget {
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1168,31 +1190,13 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		}
 	}
 
-	/**
-	 * When a task completes via task_complete, mark any remaining incomplete
-	 * todos as completed to keep the widget in sync with the agent's state.
-	 */
 	private reconcileTodosOnTaskComplete(lastRequest: IChatRequestModel | undefined): void {
 		const sessionResource = this.viewModel?.sessionResource;
 		if (!sessionResource || !lastRequest?.response) {
 			return;
 		}
 
-		const hasTaskComplete = lastRequest.response.entireResponse.value.some(
-			part => (part.kind === 'toolInvocation' || part.kind === 'toolInvocationSerialized') && part.toolId === TaskCompleteToolId
-		);
-		if (!hasTaskComplete) {
-			return;
-		}
-
-		const todos = this.chatTodoListService.getTodos(sessionResource);
-		if (todos.length > 0 && todos.some(t => t.status !== 'completed')) {
-			const completedTodos = todos.map(t => ({
-				...t,
-				status: 'completed' as const,
-			}));
-			this.chatTodoListService.setTodos(sessionResource, completedTodos);
-		}
+		reconcileTodosOnTaskComplete(this.chatTodoListService, sessionResource, lastRequest.response);
 	}
 
 	private renderChatSuggestNextWidget(): void {

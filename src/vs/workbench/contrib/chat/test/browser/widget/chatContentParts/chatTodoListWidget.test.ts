@@ -13,7 +13,10 @@ import { IConfigurationService } from '../../../../../../../platform/configurati
 import { TestConfigurationService } from '../../../../../../../platform/configuration/test/common/testConfigurationService.js';
 import { workbenchInstantiationService } from '../../../../../../test/browser/workbenchTestServices.js';
 import { ChatTodoListWidget } from '../../../../browser/widget/chatContentParts/chatTodoListWidget.js';
+import { reconcileTodosOnTaskComplete } from '../../../../browser/widget/chatWidget.js';
 import { IChatTodo, IChatTodoListService } from '../../../../common/tools/chatTodoListService.js';
+import { IChatResponseModel, IResponse } from '../../../../common/model/chatModel.js';
+import { TaskCompleteToolId } from '../../../../common/tools/builtinTools/taskCompleteTool.js';
 
 const testSessionUri = URI.parse('chat-session://test/session1');
 
@@ -290,5 +293,115 @@ suite('ChatTodoListWidget Accessibility', () => {
 
 		widget.clear(testSessionUri, true);
 		assert.strictEqual(widget.domNode.style.display, 'none', 'Widget should be hidden after force clear even with incomplete items');
+	});
+});
+
+suite('reconcileTodosOnTaskComplete', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	const sessionUri = URI.parse('chat-session://test/reconcile');
+
+	function createMockResponse(toolInvocations: Array<{ kind: string; toolId: string }>): IChatResponseModel {
+		return {
+			entireResponse: {
+				value: toolInvocations,
+			} as unknown as IResponse,
+		} as IChatResponseModel;
+	}
+
+	function createMockTodoService(initialTodos: IChatTodo[]): IChatTodoListService & { lastSetTodos: IChatTodo[] | undefined } {
+		let storedTodos = [...initialTodos];
+		return {
+			_serviceBrand: undefined,
+			onDidUpdateTodos: Event.None,
+			getTodos: () => storedTodos,
+			setTodos: (_uri: URI, todos: IChatTodo[]) => { storedTodos = todos; },
+			migrateTodos: () => { },
+			get lastSetTodos() { return storedTodos; },
+		};
+	}
+
+	test('marks incomplete todos as completed when response contains task_complete', () => {
+		const service = createMockTodoService([
+			{ id: 1, title: 'Task 1', status: 'completed' },
+			{ id: 2, title: 'Task 2', status: 'in-progress' },
+			{ id: 3, title: 'Task 3', status: 'not-started' },
+		]);
+		const response = createMockResponse([
+			{ kind: 'toolInvocation', toolId: TaskCompleteToolId },
+		]);
+
+		reconcileTodosOnTaskComplete(service, sessionUri, response);
+
+		assert.deepStrictEqual(service.getTodos(sessionUri), [
+			{ id: 1, title: 'Task 1', status: 'completed' },
+			{ id: 2, title: 'Task 2', status: 'completed' },
+			{ id: 3, title: 'Task 3', status: 'completed' },
+		]);
+	});
+
+	test('does not modify todos when response has no task_complete', () => {
+		const service = createMockTodoService([
+			{ id: 1, title: 'Task 1', status: 'completed' },
+			{ id: 2, title: 'Task 2', status: 'in-progress' },
+		]);
+		const response = createMockResponse([
+			{ kind: 'toolInvocation', toolId: 'some_other_tool' },
+		]);
+
+		reconcileTodosOnTaskComplete(service, sessionUri, response);
+
+		assert.deepStrictEqual(service.getTodos(sessionUri), [
+			{ id: 1, title: 'Task 1', status: 'completed' },
+			{ id: 2, title: 'Task 2', status: 'in-progress' },
+		]);
+	});
+
+	test('does nothing when todo list is empty', () => {
+		const service = createMockTodoService([]);
+		const response = createMockResponse([
+			{ kind: 'toolInvocation', toolId: TaskCompleteToolId },
+		]);
+
+		reconcileTodosOnTaskComplete(service, sessionUri, response);
+
+		assert.deepStrictEqual(service.getTodos(sessionUri), []);
+	});
+
+	test('does not call setTodos when all items are already completed', () => {
+		let setTodosCalled = false;
+		const service: IChatTodoListService = {
+			_serviceBrand: undefined,
+			onDidUpdateTodos: Event.None,
+			getTodos: () => [
+				{ id: 1, title: 'Task 1', status: 'completed' },
+				{ id: 2, title: 'Task 2', status: 'completed' },
+			],
+			setTodos: () => { setTodosCalled = true; },
+			migrateTodos: () => { },
+		};
+		const response = createMockResponse([
+			{ kind: 'toolInvocation', toolId: TaskCompleteToolId },
+		]);
+
+		reconcileTodosOnTaskComplete(service, sessionUri, response);
+
+		assert.strictEqual(setTodosCalled, false, 'setTodos should not be called when all items are already completed');
+	});
+
+	test('handles serialized tool invocations from restored sessions', () => {
+		const service = createMockTodoService([
+			{ id: 1, title: 'Task 1', status: 'in-progress' },
+		]);
+		const response = createMockResponse([
+			{ kind: 'toolInvocationSerialized', toolId: TaskCompleteToolId },
+		]);
+
+		reconcileTodosOnTaskComplete(service, sessionUri, response);
+
+		assert.deepStrictEqual(service.getTodos(sessionUri), [
+			{ id: 1, title: 'Task 1', status: 'completed' },
+		]);
 	});
 });
