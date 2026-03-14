@@ -52,7 +52,7 @@ import { IChatAgentAttachmentCapabilities, IChatAgentCommand, IChatAgentData, IC
 import { ChatContextKeys } from '../../common/actions/chatContextKeys.js';
 import { applyingChatEditsFailedContextKey, decidedChatEditingResourceContextKey, hasAppliedChatEditsContextKey, hasUndecidedChatEditingResourceContextKey, IChatEditingService, IChatEditingSession, inChatEditingSessionContextKey, ModifiedFileEntryState } from '../../common/editing/chatEditingService.js';
 import { IChatLayoutService } from '../../common/widget/chatLayoutService.js';
-import { IChatModel, IChatModelInputState, IChatResponseModel } from '../../common/model/chatModel.js';
+import { IChatModel, IChatModelInputState, IChatRequestModel, IChatResponseModel } from '../../common/model/chatModel.js';
 import { ChatMode, getModeNameForTelemetry, IChatMode, IChatModeService } from '../../common/chatModes.js';
 import { chatAgentLeader, ChatRequestAgentPart, ChatRequestDynamicVariablePart, ChatRequestSlashPromptPart, ChatRequestToolPart, ChatRequestToolSetPart, chatSubcommandLeader, formatChatQuestion, IParsedChatRequest } from '../../common/requestParser/chatParserTypes.js';
 import { ChatRequestParser } from '../../common/requestParser/chatRequestParser.js';
@@ -61,6 +61,7 @@ import { ChatRequestQueueKind, ChatSendResult, IChatLocationData, IChatSendReque
 import { IChatSessionsService } from '../../common/chatSessionsService.js';
 import { IChatSlashCommandService } from '../../common/participants/chatSlashCommands.js';
 import { IChatTodoListService } from '../../common/tools/chatTodoListService.js';
+import { TaskCompleteToolId } from '../../common/tools/builtinTools/taskCompleteTool.js';
 import { ChatRequestVariableSet, IChatRequestVariableEntry, isPromptFileVariableEntry, isPromptTextVariableEntry, isWorkspaceVariableEntry, PromptFileVariableKind, toPromptFileVariableEntry } from '../../common/attachments/chatVariableEntries.js';
 import { ChatViewModel, IChatResponseViewModel, isRequestVM, isResponseVM } from '../../common/model/chatViewModel.js';
 import { CodeBlockModelCollection } from '../../common/widget/codeBlockModelCollection.js';
@@ -1167,6 +1168,33 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		}
 	}
 
+	/**
+	 * When a task completes via task_complete, mark any remaining incomplete
+	 * todos as completed to keep the widget in sync with the agent's state.
+	 */
+	private reconcileTodosOnTaskComplete(lastRequest: IChatRequestModel | undefined): void {
+		const sessionResource = this.viewModel?.sessionResource;
+		if (!sessionResource || !lastRequest?.response) {
+			return;
+		}
+
+		const hasTaskComplete = lastRequest.response.entireResponse.value.some(
+			part => (part.kind === 'toolInvocation' || part.kind === 'toolInvocationSerialized') && part.toolId === TaskCompleteToolId
+		);
+		if (!hasTaskComplete) {
+			return;
+		}
+
+		const todos = this.chatTodoListService.getTodos(sessionResource);
+		if (todos.length > 0 && todos.some(t => t.status !== 'completed')) {
+			const completedTodos = todos.map(t => ({
+				...t,
+				status: 'completed' as const,
+			}));
+			this.chatTodoListService.setTodos(sessionResource, completedTodos);
+		}
+	}
+
 	private renderChatSuggestNextWidget(): void {
 		if (this.lifecycleService.willShutdown) {
 			return;
@@ -2047,6 +2075,10 @@ export class ChatWidget extends Disposable implements IChatWidget {
 				if (wasCancelled) {
 					// Clear todo list when request is cancelled
 					this.inputPart.clearTodoListWidget(this.viewModel?.sessionResource, true);
+				} else {
+					// When task is completed, mark all remaining todos as completed
+					// to keep the widget in sync with the agent's completion state
+					this.reconcileTodosOnTaskComplete(lastRequest);
 				}
 				// Only show if response wasn't canceled
 				this.renderChatSuggestNextWidget();

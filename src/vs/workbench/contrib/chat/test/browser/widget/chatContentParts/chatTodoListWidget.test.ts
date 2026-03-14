@@ -241,4 +241,54 @@ suite('ChatTodoListWidget Accessibility', () => {
 			emptyWidget.domNode.parentNode.removeChild(emptyWidget.domNode);
 		}
 	});
+
+	test('clear with force=false does not clear when items are incomplete', () => {
+		widget.render(testSessionUri);
+		widget.clear(testSessionUri, false);
+
+		// Widget should still be visible since some todos are incomplete
+		assert.strictEqual(widget.hasTodos(), true, 'Widget should still have todos when some are incomplete');
+	});
+
+	test('clear with force=false clears when all items are completed', () => {
+		const allCompletedTodos: IChatTodo[] = [
+			{ id: 1, title: 'First task', status: 'completed' },
+			{ id: 2, title: 'Second task', status: 'completed' },
+			{ id: 3, title: 'Third task', status: 'completed' }
+		];
+
+		const completedTodoListService: IChatTodoListService = {
+			_serviceBrand: undefined,
+			onDidUpdateTodos: Event.None,
+			getTodos: () => allCompletedTodos,
+			setTodos: () => { },
+			migrateTodos: () => { }
+		};
+
+		const configService = new TestConfigurationService();
+		const instantiationService = workbenchInstantiationService(undefined, store);
+		instantiationService.stub(IChatTodoListService, completedTodoListService);
+		instantiationService.stub(IConfigurationService, configService);
+		const completedWidget = store.add(instantiationService.createInstance(ChatTodoListWidget));
+		mainWindow.document.body.appendChild(completedWidget.domNode);
+
+		completedWidget.render(testSessionUri);
+		assert.strictEqual(completedWidget.hasTodos(), true, 'Widget should show todos');
+
+		completedWidget.clear(testSessionUri, false);
+		// Widget should be hidden since all todos are completed
+		assert.strictEqual(completedWidget.domNode.style.display, 'none', 'Widget should be hidden when all items are completed');
+
+		if (completedWidget.domNode.parentNode) {
+			completedWidget.domNode.parentNode.removeChild(completedWidget.domNode);
+		}
+	});
+
+	test('clear with force=true always clears regardless of completion state', () => {
+		widget.render(testSessionUri);
+		assert.strictEqual(widget.hasTodos(), true, 'Widget should have todos before clearing');
+
+		widget.clear(testSessionUri, true);
+		assert.strictEqual(widget.domNode.style.display, 'none', 'Widget should be hidden after force clear even with incomplete items');
+	});
 });
